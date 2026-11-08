@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Сборка Nuitka
+dist/
+build/
+*.build/
+*.dist/
+*.onefile-build/
+nuitka-crash-report.xml
+
+# Прочее
+*.log
+Thumbs.db
+desktop.ini
+app.ico
+
+# Списки слов скачиваются по ссылкам из README (см. build_words.py),
+# в репозитории лежат только готовые words/words_*.json
+words/ru_raw.txt
+words/en_raw.txt

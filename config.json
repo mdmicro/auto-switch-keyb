@@ -1,0 +1,8 @@
+{
+  "undo_hotkey": "ctrl+z",
+  "excluded_apps": [
+    "logonui.exe",
+    "credentialui.exe"
+  ],
+  "log_fixes": true
+}
