@@ -20,7 +20,7 @@ powershell -ExecutionPolicy Bypass -File build_exe.ps1
    c включением `pystray`, `PIL`, `win32`, `tkinter` и всех модулей проекта.
 7. Кладёт рядом с exe словари (`dist\words\`) и seed `config.json`.
 
-Результат: `dist\punto_switch.exe` (~18 МБ, onefile, сжатие zstd ~28%).
+Результат: `dist\auto-switch-keyb.exe` (~18 МБ, onefile, сжатие zstd ~28%).
 **Не удаляйте папку `words` из каталога с exe** — словари не вшиты в бинарь
 (они читаются через `paths.resource_path`, а для onefile каталог exe временный).
 
@@ -52,15 +52,15 @@ Nuitka (в upstream этот код уже поправлен).
 
 - Иконка exe: положите `app.ico` рядом со скриптом — он подключит
   `--windows-icon-from-ico=app.ico`.
-- `dist\punto_switch.build`, `dist\punto_switch.dist`,
-  `dist\punto_switch.onefile-build` — рабочие каталоги Nuitka, после сборки
+- `dist\auto-switch-keyb.build`, `dist\auto-switch-keyb.dist`,
+  `dist\auto-switch-keyb.onefile-build` — рабочие каталоги Nuitka, после сборки
   удаляемы.
 
 ## Запуск из исходников
 
 ```bat
 py -3.10 -m pip install -r requirements.txt
-py -3.10 punto_switch.py        # или start.bat (pythonw, без консоли)
+py -3.10 auto_switch_keyb.py     # или start.bat (pythonw, без консоли)
 ```
 
 Словари `words/words_*.json` лежат в репозитории. Перестроение:

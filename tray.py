@@ -16,6 +16,7 @@ import pystray
 from flags import flag_image
 from fixer import switch_layout
 from settings import open_settings
+from version import APP_NAME, __version__
 
 
 def _menu_guard(log, thunk):
@@ -54,7 +55,7 @@ def set_autostart(enable):
     import winreg
 
     key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
-    value = "PuntoSwitch"
+    value = "AutoSwitchKeyb"
     try:
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE
@@ -77,7 +78,7 @@ def autostart_enabled():
     key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-            winreg.QueryValueEx(key, "PuntoSwitch")
+            winreg.QueryValueEx(key, "AutoSwitchKeyb")
         return True
     except OSError:
         return False
@@ -131,9 +132,9 @@ def run_tray(engine, on_exit, log=None):
         return (engine.layout, engine.enabled)
 
     icon = pystray.Icon(
-        "PuntoSwitch",
+        "AutoSwitchKeyb",
         icon=flag_image(engine.layout, engine.enabled),
-        title="Punto Switch — исправление раскладки",
+        title=f"{APP_NAME} {__version__} — исправление раскладки",
         menu=menu,
     )
 

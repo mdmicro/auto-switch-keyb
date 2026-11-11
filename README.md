@@ -1,4 +1,4 @@
-# Punto Switch
+# Auto Switch Keyb
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)](#быстрый-старт)
@@ -6,6 +6,7 @@
 
 Автоматический переключатель раскладки клавиатуры **RU ↔ EN** — аналог
 [Punto Switcher](https://puntoswitcher.com/) на чистом Python для Windows 10/11.
+Версия: `1.1.0` (`version.py`, история изменений — [CHANGELOG.md](CHANGELOG.md)).
 
 Если вы набрали слово «в не той раскладке» (`ghbdtn` вместо `привет`),
 Punto Switcher стирает его, печатает правильное слово и переключает
@@ -45,7 +46,7 @@ ghbdtn cbvf print        ← набрали в EN
 
 ### Вариант 1 — готовый EXE
 
-Скачайте `punto_switch.exe` из [releases](../../releases), положите в папку,
+Скачайте `auto-switch-keyb.exe` из [releases](../../releases), положите в папку,
 где рядом будут лежать `words/` и `config.json` (весь архив releases уже
 так устроен), и запускайте двойным кликом. На первый запуск Windows может
 показать SmartScreen для неподписанного файла — «Подробнее → Выполнить».
@@ -56,7 +57,7 @@ ghbdtn cbvf print        ← набрали в EN
 
 ```bat
 py -3.10 -m pip install -r requirements.txt
-py -3.10 punto_switch.py
+py -3.10 auto_switch_keyb.py
 ```
 
 Готовые словари (`words/words_*.json`) лежат в репозитории — программа
@@ -104,7 +105,7 @@ py -3.10 punto_switch.py
 powershell -ExecutionPolicy Bypass -File build_exe.ps1
 ```
 
-Получится `dist\punto_switch.exe` (onefile, без консоли, ~18 МБ); рядом
+Получится `dist\auto-switch-keyb.exe` (onefile, без консоли, ~18 МБ); рядом
 скрипт кладёт словари и seed-`config.json`. Подробности, требования к
 компилятору и обход бага Nuitka 4.3.4 — в [docs/BUILD.md](docs/BUILD.md).
 
@@ -127,7 +128,7 @@ powershell -ExecutionPolicy Bypass -File build_exe.ps1
 - **Ноль сетевых вызовов.** В коде нет socket/http/requests/urllib —
   проверка: `grep -r "socket\|http\|urllib\|requests\|urlopen" *.py` пуста.
   Обработка и словари — только локально.
-- На диск пишется лишь локальный лог: `%LOCALAPPDATA%\punto_switch\log.txt`
+- На диск пишется лишь локальный лог: `%LOCALAPPDATA%\auto-switch-keyb\log.txt`
   (только **исправленные слова**, не весь ввод; отключается в настройках)
   и `config.json` там же.
 - Буфер обмена не используется. Окна ввода паролей — в исключениях по умолчанию.
@@ -142,7 +143,7 @@ powershell -ExecutionPolicy Bypass -File build_exe.ps1
 
 ## Конфигурация
 
-`%LOCALAPPDATA%\punto_switch\config.json` (создаётся сам из seed-файла):
+`%LOCALAPPDATA%\auto-switch-keyb\config.json` (создаётся сам из seed-файла):
 
 ```json
 {
@@ -155,7 +156,8 @@ powershell -ExecutionPolicy Bypass -File build_exe.ps1
 ## Структура проекта
 
 ```
-punto_switch.py    точка входа
+auto_switch_keyb.py точка входа
+version.py         версия приложения и отображаемое имя
 engine.py          глобальный хук, распознавание, хоткей отмены, хот-релоад конфига
 corrector.py       словари + эвристика «зеркального» слова
 layout_map.py      соответствие клавиш RU/EN

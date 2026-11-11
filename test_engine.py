@@ -9,7 +9,7 @@ import time
 
 import engine
 import fixer
-from engine import PuntoEngine
+from engine import SwitchEngine
 
 
 class Recorder:
@@ -24,7 +24,7 @@ def make_engine(rec_replace, rec_layout):
     engine.replace_last_word = rec_replace
     engine.switch_layout = rec_layout
     log = Recorder()
-    e = PuntoEngine({}, lambda m: log(m))
+    e = SwitchEngine({}, lambda m: log(m))
     e.layout = "en"
     e.intent = "en"
     return e, log
@@ -90,10 +90,10 @@ def main():
     kb.scanCode = ord(" ")
     kb.flags = 0x10             # INJECTED, extra=0 (не наш magic)
     lparam = ctypes.pointer(kb)   # колбэк хука получает POINTER(KBDLLHOOKSTRUCT)
-    orig_pass = engine.PuntoEngine._pass
-    engine.PuntoEngine._pass = staticmethod(lambda n, m, l: 0)
+    orig_pass = engine.SwitchEngine._pass
+    engine.SwitchEngine._pass = staticmethod(lambda n, m, l: 0)
     res = e6._on_key(0, WM_KEYDOWN, lparam)
-    engine.PuntoEngine._pass = orig_pass
+    engine.SwitchEngine._pass = orig_pass
     while not e6._fix_logs.empty():
         print("hook log:", e6._fix_logs.get_nowait())
     print("space keydown result:", res, "swallow:", e6._swallow_vk)

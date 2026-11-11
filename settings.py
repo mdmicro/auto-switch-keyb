@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from hotkey_config import format_hotkey, load_config, parse_hotkey, save_config
+from version import __version__
 
 MODIFIER_OPTIONS = ["Ctrl", "Shift", "Alt"]
 BASE_KEYS = (
@@ -45,7 +46,7 @@ def _run_window(engine, log):
     hotkey_text.withdraw()
 
     root = tk.Toplevel(hotkey_text)
-    root.title("Punto Switch — настройки")
+    root.title(f"Auto Switch Keyb {__version__} — настройки")
     root.geometry("440x420")
 
     frame = ttk.Frame(root, padding=12)

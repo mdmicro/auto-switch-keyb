@@ -1,10 +1,10 @@
-# Build Punto Switch into a single EXE with Nuitka (onefile).
+# Build Auto Switch Keyb into a single EXE with Nuitka (onefile).
 #
 #   powershell -ExecutionPolicy Bypass -File build_exe.ps1
 #
-# Result: dist\punto_switch.exe (one file). The word banks (words\*.json)
+# Result: dist\auto-switch-keyb.exe (one file). The word banks (words\*.json)
 # and a seed config.json are copied next to the exe. Settings and log live
-# in %LOCALAPPDATA%\punto_switch.
+# in %LOCALAPPDATA%\auto-switch-keyb.
 #
 # Nuitka needs a C compiler: MSVC (Visual Studio Build Tools) or MinGW gcc.
 # Nuitka downloads MinGW by itself when no compiler is found.
@@ -71,9 +71,10 @@ $NuitkaArgs = @(
     "--include-module=flags",
     "--include-module=paths",
     "--include-module=hotkey_config",
+    "--include-module=version",
     "--output-dir=dist",
-    "--output-filename=punto_switch.exe",
-    "punto_switch.py"
+    "--output-filename=auto-switch-keyb.exe",
+    "auto_switch_keyb.py"
 )
 if (Test-Path "$Here\app.ico") {
     $NuitkaArgs += "--windows-icon-from-ico=app.ico"
@@ -89,6 +90,6 @@ Copy-Item "$Here\words\words_en.json" "$Dist\words\" -Force
 if (Test-Path "$Here\config.json") { Copy-Item "$Here\config.json" "$Dist\" -Force }
 
 Write-Host ""
-Write-Host "Done: $Dist\punto_switch.exe" -ForegroundColor Green
+Write-Host "Done: $Dist\auto-switch-keyb.exe" -ForegroundColor Green
 Write-Host "Word banks and config.json sit next to the exe - keep the words folder with it." -ForegroundColor Green
-Write-Host "Settings and log: %LOCALAPPDATA%\punto_switch" -ForegroundColor Green
+Write-Host "Settings and log: %LOCALAPPDATA%\auto-switch-keyb" -ForegroundColor Green

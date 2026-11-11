@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Движок Punto Switch: глобальный клавиатурный хук + распознавание слов.
+"""Auto Switch Keyb: глобальный клавиатурный хук + распознавание слов.
 
 WH_KEYBOARD_LL слушает весь ввод клавиатуры в системе. Символы копятся в
 «буфер текущего слова». На границе слова (пробел, Enter, Tab) слово
@@ -149,7 +149,7 @@ kernel32.GetModuleHandleW.restype = wintypes.HINSTANCE
 kernel32.GetModuleHandleW.argtypes = (wintypes.LPCWSTR,)
 
 
-class PuntoEngine:
+class SwitchEngine:
     """Состояние и логика распознавания «набрано не в той раскладке»."""
 
     def __init__(self, config, logger):

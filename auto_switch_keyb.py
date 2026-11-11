@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Punto Switch — аналог Punto Switcher на Python для Windows 10.
+"""Auto Switch Keyb — аналог Punto Switcher на Python для Windows 10.
 
 Исправляет слова, набранные «в не той раскладке» (русская <-> английская),
 и сам переключает раскладку на язык результата. Работает в фоне, иконка в
 системном трее — флаг текущей раскладки.
 
-Запуск:      py -3.10 punto_switch.py     (pythonw.exe — без консоли)
+Запуск:      py -3.10 auto_switch_keyb.py   (pythonw.exe — без консоли)
 Словари:     py -3.10 build_words.py      (один раз, до первого запуска)
 Сборка EXE:  powershell -File build_exe.ps1
 
@@ -24,10 +24,11 @@
 import sys
 import time
 
-from engine import PuntoEngine
+from engine import SwitchEngine
 from hotkey_config import load_config
 from paths import app_data_dir
 from tray import run_tray
+from version import __version__
 
 MAX_LOG_BYTES = 512 * 1024
 LOG_ENABLED_KEY = "log_fixes"
@@ -43,7 +44,7 @@ def current_log_enabled():
 def logger(message):
     """Строчка лога с отметкой времени; локальный файл, автоповорот.
 
-    Логи пишутся ТОЛЬКО в %LOCALAPPDATA%\\punto_switch\\log.txt. Приложение
+    Логи пишутся ТОЛЬКО в %LOCALAPPDATA%\\auto-switch-keyb\\log.txt. Приложение
     не содержит сетевых вызовов: ни один символ, набранный пользователем,
     не покидает машину.
     """
@@ -66,14 +67,14 @@ def logger(message):
 def main():
     # настройки передаём движку как callable: изменения из окна «Настройки»
     # подхватываются без рестарта (рабочий поток перечитывает config.json)
-    engine = PuntoEngine(load_config, logger)
+    engine = SwitchEngine(load_config, logger)
     engine.start()
 
     def on_exit():
         engine.stop()
         logger("остановка")
 
-    logger("запуск")
+    logger(f"запуск v{__version__}")
     try:
         run_tray(engine, on_exit, log=logger)
     except KeyboardInterrupt:

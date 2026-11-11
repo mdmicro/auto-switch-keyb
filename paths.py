@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Пути к данным: одинаково для `python punto_switch.py` и для EXE от Nuitka.
+"""Пути к данным: одинаково для `python auto_switch_keyb.py` и для EXE от Nuitka.
 
 Словари (words/*.json) ищутся в первом найденном месте: рядом с exe
 (для onefile-сборки это временный каталог распаковки), рядом с исходником,
 в текущей папке.
 
-config.json всегда в %LOCALAPPDATA%\\punto_switch\\config.json: для
+config.json всегда в %LOCALAPPDATA%\\auto-switch-keyb\\config.json: для
 onefile-сборки каталог exe временный, настройки там не переживут перезапуск.
 """
 
 import os
+import shutil
 import sys
 
 
@@ -40,9 +41,20 @@ def resource_path(name):
 
 
 def app_data_dir():
-    """Постоянный каталог программы: логи и настройки."""
+    """Каталог программы: логи и настройки.
+
+    Раньше папка называлась punto_switch - при переименовании проекта
+    переносим config.json из старой папки, чтобы настройки не «обнулились».
+    """
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-    d = os.path.join(base, "punto_switch")
+    d = os.path.join(base, "auto-switch-keyb")
+    old = os.path.join(base, "punto_switch")
+    if not os.path.exists(d) and os.path.isdir(old):
+        os.makedirs(d, exist_ok=True)
+        for name in ("config.json", "log.txt"):
+            src, dst = os.path.join(old, name), os.path.join(d, name)
+            if os.path.exists(src) and not os.path.exists(dst):
+                shutil.copy2(src, dst)
     os.makedirs(d, exist_ok=True)
     return d
 

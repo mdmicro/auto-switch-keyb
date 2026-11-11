@@ -8,10 +8,10 @@ config.json:
   "log_fixes": true                      # писать ли исправления в локальный лог
 }
 
-Файл лежит в %LOCALAPPDATA%\\punto_switch\\config.json; при первом запуске
+Файл лежит в %LOCALAPPDATA%\\auto-switch-keyb\\config.json; при первом запуске
 заполняется из seed-файла config.json рядом с программой.
 
-Движок получает настройки как callable (см. punto_switch.py), поэтому
+Движок получает настройки как callable (см. auto_switch_keyb.py), поэтому
 изменения из окна «Настройки» подхватываются без рестарта.
 """
 

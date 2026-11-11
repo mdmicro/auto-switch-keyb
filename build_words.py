@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Построение компактных словарей для Punto Switch.
+"""Построение компактных словарей для Auto Switch Keyb.
 
 Вход (сырые списки слов, лежат в ./words):
     words/ru_raw.txt  -- danakt/russian-words: все морфологические формы,
@@ -86,7 +86,7 @@ def main():
     en = build_en()
     print(f"words_ru.json: {ru} слов")
     print(f"words_en.json: {en} слов")
-    print("Готово. Теперь: py -3.10 punto_switch.py")
+    print("Готово. Теперь: py -3.10 auto_switch_keyb.py")
 
 
 if __name__ == "__main__":
