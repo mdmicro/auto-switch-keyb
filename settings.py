@@ -8,7 +8,13 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from hotkey_config import format_hotkey, load_config, parse_hotkey, save_config
+from hotkey_config import (
+    DEFAULT_CONFIG,
+    format_hotkey,
+    load_config,
+    parse_hotkey,
+    save_config,
+)
 from version import __version__
 
 MODIFIER_OPTIONS = ["Ctrl", "Shift", "Alt"]
@@ -19,17 +25,19 @@ BASE_KEYS = (
 )
 
 
-def open_settings(engine, log=None):
+def open_settings(engine, log=None, on_ready=None):
     """Открыть окно настроек неблокирующим потоком.
 
     engine.refresh_now() вызывается после сохранения, чтобы движок подхватил
     настройки без рестарта. Любое падение окна логируется, а не рушит
-    поток меню иконки.
+    поток меню иконки. on_ready(root) вызывается в потоке окна после
+    построения интерфейса (для тестов: опрос виджетов потокобезопасен
+    только изнутри потока Tk).
     """
 
     def target():
         try:
-            _run_window(engine, log)
+            _run_window(engine, log, on_ready)
         except Exception:
             if log:
                 import traceback
@@ -40,7 +48,7 @@ def open_settings(engine, log=None):
     thread.start()
 
 
-def _run_window(engine, log):
+def _run_window(engine, log, on_ready=None):
     cfg = load_config()
     hotkey_text = tk.Tk()
     hotkey_text.withdraw()
@@ -61,14 +69,14 @@ def _run_window(engine, log):
     mods_row.pack(fill="x")
     ttk.Label(mods_row, text="Модификаторы:").pack(side="left")
     for name in MODIFIER_OPTIONS:
-        var = tk.BooleanVar(value=name in parse_mods(cfg.get("undo_hotkey", "")))
+        var = tk.BooleanVar()
         mods_vars[name] = var
         ttk.Checkbutton(mods_row, text=name, variable=var).pack(side="left", padx=4)
 
     base_row = ttk.Frame(hot)
     base_row.pack(fill="x", pady=(6, 0))
     ttk.Label(base_row, text="Клавиша:").pack(side="left")
-    base_var = tk.StringVar(value=base_of(cfg.get("undo_hotkey", "ctrl+z")))
+    base_var = tk.StringVar()
     base_box = ttk.Combobox(base_row, textvariable=base_var, values=BASE_KEYS,
                             width=8, state="normal")
     base_box.pack(side="left", padx=4)
@@ -83,7 +91,7 @@ def _run_window(engine, log):
     apps = ttk.LabelFrame(frame, text="Не исправлять в приложениях", padding=8)
     apps.pack(fill="both", expand=True, pady=(10, 0))
 
-    list_var = tk.StringVar(value=cfg.get("excluded_apps", []))
+    list_var = tk.StringVar()
     box = tk.Listbox(apps, listvariable=list_var, height=8, exportselection=False)
     box.pack(side="left", fill="both", expand=True)
     scroll = ttk.Scrollbar(apps, command=box.yview)
@@ -122,9 +130,35 @@ def _run_window(engine, log):
     # ---------- лог ----------
     log_frame = ttk.Frame(frame)
     log_frame.pack(fill="x", pady=(10, 0))
-    log_var = tk.BooleanVar(value=bool(cfg.get("log_fixes", True)))
+    log_var = tk.BooleanVar()
     ttk.Checkbutton(log_frame, text="Писать исправления в локальный лог",
                     variable=log_var).pack(anchor="w")
+
+    # ---------- заполнение формы текущими настройками ----------
+    # Значения применяем ЯВНО через .set() после создания всех виджетов:
+    # инициализация через конструктор Variable(value=...) в некоторых
+    # сборках (Nuitka onefile) не отображается в интерфейсе, из-за чего
+    # окно выглядело «пустым» — без текущих и без значений по умолчанию.
+    def apply_saved():
+        hotkey = cfg.get("undo_hotkey", DEFAULT_CONFIG["undo_hotkey"])
+        mods = parse_mods(hotkey)
+        for name, v in mods_vars.items():
+            v.set(name in mods)
+        base_var.set(base_of(hotkey))
+        list_var.set(list(cfg.get("excluded_apps", [])))
+        log_var.set(bool(cfg.get("log_fixes", True)))
+
+    apply_saved()
+    root.after(50, apply_saved)     # страховка: применить и на тике цикла событий
+
+    # ---------- значения по умолчанию (кнопка, не сохранение) ----------
+    def reset_defaults():
+        mods = parse_mods(DEFAULT_CONFIG["undo_hotkey"])
+        for name, v in mods_vars.items():
+            v.set(name in mods)
+        base_var.set(base_of(DEFAULT_CONFIG["undo_hotkey"]))
+        list_var.set(list(DEFAULT_CONFIG["excluded_apps"]))
+        log_var.set(bool(DEFAULT_CONFIG["log_fixes"]))
 
     # ---------- кнопки ----------
     btns = ttk.Frame(frame)
@@ -157,10 +191,13 @@ def _run_window(engine, log):
             messagebox.showerror("Настройки", "Не удалось записать config.json",
                                  parent=root)
 
+    ttk.Button(btns, text="По умолчанию", command=reset_defaults).pack(side="left")
     ttk.Button(btns, text="Сохранить и применить", command=save).pack(side="right")
     ttk.Button(btns, text="Отмена", command=root.destroy).pack(side="right", padx=6)
 
     root.protocol("WM_DELETE_WINDOW", root.destroy)
+    if on_ready:
+        root.after(80, lambda: on_ready(root))
     root.mainloop()
     hotkey_text.destroy()
 
