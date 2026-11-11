@@ -14,9 +14,11 @@
    Покрывает браузеры (Chromium, Gecko), Electron, WPF, WinUI — весь
    современный UI. Нужен пакет comtypes (чистый python); если его нет
    или UIA недоступен — переходим к уровню 2.
-2. Нативные edit-контролы: фокус чужого потока берём через
-   AttachThreadInput + GetFocus, затем стиль ES_PASSWORD у класса
-   edit-семейства. Микросекунды, без COM.
+2. Нативные edit-контролы: фокус чужого потока читаем через
+   GetGUIThreadInfo (hwndFocus), затем стиль ES_PASSWORD у класса
+   edit-семейства. Микросекунды, без COM и без AttachThreadInput —
+   тот вплетает очереди ввода и при отсоединении переносит фокус
+   (исправления улетали в чужое окно).
 
 Любая ошибка -> False (исправление разрешено): guard не имеет права
 ломать основную функцию программы.
@@ -42,6 +44,21 @@ EDIT_CLASSES = {
     "richedit50w", "ttntedit", "tntedit.unicodeclass",
 }
 
+
+class GUITHREADINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("hwndActive", wintypes.HWND),
+        ("hwndFocus", wintypes.HWND),
+        ("hwndCapture", wintypes.HWND),
+        ("hwndMenuOwner", wintypes.HWND),
+        ("hwndMoveSize", wintypes.HWND),
+        ("hwndCaret", wintypes.HWND),
+        ("rcCaret", wintypes.RECT),
+    ]
+
+
 kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
 user32.GetWindowThreadProcessId.restype = wintypes.DWORD
@@ -51,8 +68,8 @@ user32.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
 user32.GetClassNameW.restype = ctypes.c_int
 user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
 user32.GetWindowLongW.restype = ctypes.c_long
-user32.AttachThreadInput.restype = wintypes.BOOL
-user32.AttachThreadInput.argtypes = (wintypes.DWORD, wintypes.DWORD, wintypes.BOOL)
+user32.GetGUIThreadInfo.argtypes = (wintypes.DWORD, ctypes.POINTER(GUITHREADINFO))
+user32.GetGUIThreadInfo.restype = wintypes.BOOL
 user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
 user32.GetAncestor.restype = wintypes.HWND
 
@@ -62,25 +79,25 @@ _uia_lock = threading.Lock()
 
 
 def _focused_hwnd():
-    """HWND контрола в фокусе ввода (в т.ч. у чужого потока)."""
+    """HWND контрола в фокусе ввода, включая фокус чужого потока.
+
+    GetGUIThreadInfo только читает состояние потока переднего окна
+    (hwndFocus) и НЕ трогает очереди ввода. Раньше здесь был
+    AttachThreadInput + GetFocus: вплетение очереди нашего потока в
+    очередь окна при отсоединении переносило фокус ввода в другое окно —
+    из-за этого исправление печаталось не туда и фокус «уходил к мыши».
+    """
     hwnd = user32.GetForegroundWindow()
     if not hwnd:
         return None
-    fg_pid = wintypes.DWORD(0)
-    tid_fg = user32.GetWindowThreadProcessId(hwnd, ctypes.byref(fg_pid))
-    tid_me = kernel32.GetCurrentThreadId()
-    if not tid_fg or tid_fg == tid_me:
-        return user32.GetFocus() or None
-    hfocus = None
-    try:
-        if user32.AttachThreadInput(tid_me, tid_fg, True):
-            try:
-                hfocus = user32.GetFocus() or None
-            finally:
-                user32.AttachThreadInput(tid_me, tid_fg, False)
-    except Exception:
-        pass
-    return hfocus
+    tid_fg = user32.GetWindowThreadProcessId(hwnd, None)
+    if not tid_fg:
+        return None
+    gti = GUITHREADINFO()
+    gti.cbSize = ctypes.sizeof(GUITHREADINFO)
+    if not user32.GetGUIThreadInfo(tid_fg, ctypes.byref(gti)):
+        return None
+    return gti.hwndFocus or gti.hwndActive or None
 
 
 def _native_is_password():
