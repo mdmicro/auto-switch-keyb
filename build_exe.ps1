@@ -33,8 +33,15 @@ if (-not (Test-Path "$Here\words\words_ru.json") -or -not (Test-Path "$Here\word
 }
 
 Write-Host "Installing build dependencies..." -ForegroundColor Cyan
-& py -3.10 -m pip install --quiet --disable-pip-version-check nuitka ordered-set pywin32 pystray Pillow zstandard
+& py -3.10 -m pip install --quiet --disable-pip-version-check nuitka ordered-set pywin32 pystray Pillow zstandard comtypes
 if ($LASTEXITCODE -ne 0) { Write-Host "pip install failed" -ForegroundColor Red; exit 1 }
+
+# comtypes generates its typelib wrappers into comtypes.gen at runtime.
+# In a frozen app generation may fail, so pre-generate the UIA wrapper
+# now (password_guard.py uses IUIAutomation for password field detection);
+# at runtime the existing module is imported, not regenerated.
+& py -3.10 -c "import comtypes.client as c; c.GetModule('UIAutomationCore.dll')" 2>$null
+if ($LASTEXITCODE -ne 0) { Write-Host "comtypes.GetModule(UIAutomationCore) failed" -ForegroundColor Yellow }
 
 # Work around a Nuitka 4.3.4 bug: MetaPathBasedLoaderResourceReader.c forward-declares
 # _kw_list_get_data, but MSVC compiles the sources with /TP (C++ mode) where a static
@@ -60,6 +67,8 @@ $NuitkaArgs = @(
     "--include-package=pystray",
     "--include-package=PIL",
     "--include-package=win32",
+    "--include-package=comtypes",
+    "--include-module=password_guard",
     "--include-module=tkinter",
     "--enable-plugin=tk-inter",
     "--include-module=engine",

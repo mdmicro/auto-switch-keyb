@@ -35,6 +35,7 @@ from corrector import MIN_WORD_LEN, WordDicts, decide
 from fixer import INJECTED_MAGIC, replace_last_word, switch_layout
 from hotkey_config import parse_hotkey
 from layout_map import LAYOUT_EN, LAYOUT_RU, lang_of_chars
+from password_guard import focused_is_password
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -323,6 +324,15 @@ class SwitchEngine:
             return None
         now = time.time()
         if now - self._last_fix < FIX_DEBOUNCE:
+            return None
+        # в поле пароля/авторизации ничего не исправляем: пользователь
+        # печатает скрытый ввод, и перепечатка «не той раскладкой» испортила
+        # бы пароль или показала его на экране. Проверка дорогая (UIA) —
+        # только здесь, в момент реально найденного исправления
+        if result["fixed"] and focused_is_password():
+            self._fix_logs.put(
+                f"поле пароля/авторизации: исправление пропущено ({word!r})"
+            )
             return None
         self._last_fix = now
         typed_layout = self.layout   # раскладка, в которой слово было набрано
