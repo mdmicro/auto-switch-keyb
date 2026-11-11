@@ -3,10 +3,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)](#быстрый-старт)
 [![Python](https://img.shields.io/badge/python-3.9%2B-informational)](https://www.python.org/)
+[![Telegram](https://img.shields.io/badge/Telegram-%40mdmdev-blue?logo=telegram)](https://t.me/mdmdev)
 
 Автоматический переключатель раскладки клавиатуры **RU ↔ EN** — аналог
 [Punto Switcher](https://puntoswitcher.com/) на чистом Python для Windows 10/11.
-Версия: `1.1.0` (`version.py`, история изменений — [CHANGELOG.md](CHANGELOG.md)).
+Версия: `1.3.2` (`version.py`, история изменений — [CHANGELOG.md](CHANGELOG.md)).
 
 Если вы набрали слово «в не той раскладке» (`ghbdtn` вместо `привет`),
 Punto Switcher стирает его, печатает правильное слово и переключает
@@ -203,6 +204,14 @@ E2E-тесты, которые реально шлют клавиши в Бло�
 - [ ] Автообновление словарей
 
 Предложения и находки — в [issues](../../issues).
+
+## 💬 Контакты и поддержка проекта
+
+- **Telegram:** [@mdmdev](https://t.me/mdmdev) — вопросы, идеи, багрепорты.
+- **Поддержать проект (Сбербанк):** [перевод по номеру карты/телефона](https://www.sberbank.ru/ru/choise_bank?requisiteNumber=79128911008&bankCode=100000000111).
+
+Проект бесплатный и останется таким — поддержка помогает уделять ему
+больше времени (словари, новые раскладки, индикатор на экране).
 
 ## Лицензия
 
