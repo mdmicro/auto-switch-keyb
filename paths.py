@@ -32,7 +32,13 @@ def _candidate_dirs():
 
 
 def resource_path(name):
-    """Путь к файлу данных проекта (words/words_ru.json, config.json...)."""
+    """Путь к файлу данных проекта (words/words_ru.json, config.json...).
+
+    Порядок поиска: каталог exe (в onefile-сборке это место, откуда
+    запущен exe — внешние файлы имеют приоритет), каталог модулей
+    (в onefile-сборке это временный каталог распаковки, куда Nuitka
+    кладёт встроенные данные --include-data-files), текущий каталог.
+    """
     for base in _candidate_dirs():
         cand = os.path.join(base, name)
         if os.path.exists(cand):

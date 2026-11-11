@@ -2,9 +2,9 @@
 #
 #   powershell -ExecutionPolicy Bypass -File build_exe.ps1
 #
-# Result: dist\auto-switch-keyb.exe (one file). The word banks (words\*.json)
-# and a seed config.json are copied next to the exe. Settings and log live
-# in %LOCALAPPDATA%\auto-switch-keyb.
+# Result: dist\auto-switch-keyb.exe (one file). The word banks are embedded
+# into the exe (an external words\*.json folder next to it overrides them).
+# Settings and log live in %LOCALAPPDATA%\auto-switch-keyb.
 #
 # Nuitka needs a C compiler: MSVC (Visual Studio Build Tools) or MinGW gcc.
 # Nuitka downloads MinGW by itself when no compiler is found.
@@ -81,6 +81,8 @@ $NuitkaArgs = @(
     "--include-module=paths",
     "--include-module=hotkey_config",
     "--include-module=version",
+    "--include-data-files=words/words_ru.json=words/words_ru.json",
+    "--include-data-files=words/words_en.json=words/words_en.json",
     "--output-dir=dist",
     "--output-filename=auto-switch-keyb.exe",
     "auto_switch_keyb.py"
@@ -91,7 +93,9 @@ if (Test-Path "$Here\app.ico") {
 & py $NuitkaArgs
 if ($LASTEXITCODE -ne 0) { Write-Host "Nuitka failed" -ForegroundColor Red; exit 1 }
 
-# copy word banks and seed config next to the exe
+# copy word banks next to the exe as an OPTIONAL override: the exe carries
+# them embedded, an external words\*.json takes precedence (no rebuild needed
+# to swap dictionaries)
 $Dist = "$Here\dist"
 if (-not (Test-Path "$Dist\words")) { New-Item -ItemType Directory -Path "$Dist\words" | Out-Null }
 Copy-Item "$Here\words\words_ru.json" "$Dist\words\" -Force
@@ -100,5 +104,5 @@ if (Test-Path "$Here\config.json") { Copy-Item "$Here\config.json" "$Dist\" -For
 
 Write-Host ""
 Write-Host "Done: $Dist\auto-switch-keyb.exe" -ForegroundColor Green
-Write-Host "Word banks and config.json sit next to the exe - keep the words folder with it." -ForegroundColor Green
+Write-Host "Word banks are embedded in the exe; an external words folder (if present) overrides them." -ForegroundColor Green
 Write-Host "Settings and log: %LOCALAPPDATA%\auto-switch-keyb" -ForegroundColor Green

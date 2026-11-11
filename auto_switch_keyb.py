@@ -81,6 +81,13 @@ def main():
 
     logger(f"запуск v{__version__}", force=True)
     try:
+        # служебная строка без пользовательского текста: размеры словарей
+        # подтверждают, что встроенные/внешние словари реально загрузились
+        d = engine.dicts
+        logger(f"словари: ru={len(d.ru)} en={len(d.en)}", force=True)
+    except Exception:
+        pass
+    try:
         run_tray(engine, on_exit, log=logger)
     except KeyboardInterrupt:
         pass

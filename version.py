@@ -6,5 +6,5 @@
 CHANGELOG.md (ведение изменений проекта — обязательная практика).
 """
 
-__version__ = "1.3.2"
+__version__ = "1.4.0"
 APP_NAME = "Auto Switch Keyb"
