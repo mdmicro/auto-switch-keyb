@@ -41,14 +41,19 @@ def current_log_enabled():
         return True
 
 
-def logger(message):
+def logger(message, force=False):
     """Строчка лога с отметкой времени; локальный файл, автоповорот.
 
     Логи пишутся ТОЛЬКО в %LOCALAPPDATA%\\auto-switch-keyb\\log.txt. Приложение
     не содержит сетевых вызовов: ни один символ, набранный пользователем,
     не покидает машину.
+
+    По умолчанию запись отключается галочкой «Писать исправления в лог»
+    (log_fixes=false). force=True — служебные строки без пользовательского
+    текста (запуск/остановка с версией): пишутся всегда, иначе по логу
+    нельзя понять, какая версия вообще работала.
     """
-    if not current_log_enabled():
+    if not force and not current_log_enabled():
         return
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {message}\n"
     try:
@@ -72,9 +77,9 @@ def main():
 
     def on_exit():
         engine.stop()
-        logger("остановка")
+        logger("остановка", force=True)
 
-    logger(f"запуск v{__version__}")
+    logger(f"запуск v{__version__}", force=True)
     try:
         run_tray(engine, on_exit, log=logger)
     except KeyboardInterrupt:
