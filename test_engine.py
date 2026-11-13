@@ -75,6 +75,38 @@ def main():
     e5b._apply_fix(("xyz", "abc", "en", "en", None, " "))
     assert rec_layout.events == [], "лишний switch_layout не дёргается"
 
+    # 5c. ручная смена раскладки последнего слова: словарное print -> зкште
+    # (зеркало по физическим клавишам; в отличие от автоисправления,
+    #  трогается и настоящее слово - пользователь просит руками)
+    e5c, _ = make_engine(rec_replace, rec_layout)
+    e5c._last_word = "print"
+    e5c._typed_after_word = 0
+    assert e5c._switch_last_word_layout() is True, "print -> зкште руками"
+    assert ("print", "зкште") in rec_replace.events, "замена без терминатора"
+    assert ("ru",) in rec_layout.events[-1:], "раскладка переключена"
+    assert e5c.layout == "ru" and e5c._last_word == "зкште"
+
+    # 5d. после слова что-то напечатали -> ручная смена отказ
+    e5d, _ = make_engine(rec_replace, rec_layout)
+    e5d._last_word = "print"
+    e5d._typed_after_word = 2
+    assert e5d._switch_last_word_layout() is False, "не последнее слово - отказ"
+
+    # 5e. слова нет -> отказ; смешанное слово -> отказ
+    e5e, _ = make_engine(rec_replace, rec_layout)
+    assert e5e._switch_last_word_layout() is False, "нет слова - отказ"
+    e5e._last_word = "abcдеф"
+    assert e5e._switch_last_word_layout() is False, "смешанное - отказ"
+
+    # 5f. смена раскладки отменяется как обычное исправление (_undo_last_fix)
+    rec_replace.events.clear()
+    rec_layout.events.clear()
+    e5f, _ = make_engine(rec_replace, rec_layout)
+    e5f._last_word = "print"
+    assert e5f._switch_last_word_layout() is True
+    assert e5f._undo_last_fix() is True, "смена откатывается хоткеем отмены"
+    assert e5f.layout == "en", "раскладка возвращена при откате"
+
     # 6. Съедание терминатора: keydown пробела с исправлением -> return 1
     e6, _ = make_engine(rec_replace, rec_layout)
     # foreground-окном в тестовой сессии является консоль (pwsh) — она по

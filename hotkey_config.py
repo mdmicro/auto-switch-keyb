@@ -4,6 +4,7 @@
 config.json:
 {
   "undo_hotkey": "ctrl+z",               # горячая клавиша отмены исправления
+  "switch_hotkey": "ctrl+shift+f",       # ручная смена раскладки последнего слова
   "excluded_apps": ["chrome.exe", ...],  # процессы, где автоисправление выключено
   "log_fixes": true                      # писать ли исправления в локальный лог
 }
@@ -22,6 +23,7 @@ from paths import config_path, resource_path
 
 DEFAULT_CONFIG = {
     "undo_hotkey": "ctrl+z",
+    "switch_hotkey": "ctrl+shift+f",
     "excluded_apps": ["logonui.exe", "credentialui.exe"],
     "log_fixes": True,
     "debug": False,       # подробные строки диагностики в log.txt

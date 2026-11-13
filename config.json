@@ -1,5 +1,6 @@
 {
   "undo_hotkey": "ctrl+z",
+  "switch_hotkey": "ctrl+shift+f",
   "excluded_apps": [
     "logonui.exe",
     "credentialui.exe"

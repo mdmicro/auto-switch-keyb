@@ -23,6 +23,10 @@ WH_KEYBOARD_LL слушает весь ввод клавиатуры в сист
    откат стирает исправленное слово, печатает исходное и возвращает
    раскладку. Отменяется ровно одно последнее исправление; после отмены
    Ctrl+Z снова работает как обычная «отменить» приложения.
+5. Ctrl+Shift+F — ручная смена раскладки ПОСЛЕДНЕГО набранного слова
+   (как в Punto Switcher): слово перепечатывается «зеркалом» (по физическим
+   клавишам) и раскладка переключается. Работает для любого слова, даже
+   словарного; после слова не должно быть новых символов и пробела.
 """
 
 import ctypes
@@ -31,10 +35,10 @@ import threading
 import time
 from ctypes import wintypes
 
-from corrector import MIN_WORD_LEN, WordDicts, decide
+from corrector import MIN_WORD_LEN, WordDicts, apply_case, decide
 from fixer import INJECTED_MAGIC, replace_last_word, switch_layout
 from hotkey_config import parse_hotkey
-from layout_map import LAYOUT_EN, LAYOUT_RU, lang_of_chars
+from layout_map import LAYOUT_EN, LAYOUT_RU, convert, lang_of_chars
 from password_guard import focused_is_password
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -171,8 +175,14 @@ class SwitchEngine:
         # (набранное, исправленное, раскладка_набора, раскладка_результата,
         #  терминатор_vk, терминатор_char)
         self._last_applied = None
+        # последнее набранное слово (для ручной смены раскладки слова):
+        # текст слова, каким он ушёл на экран
+        self._last_word = None
         # сколько символов пользователь набрал после последнего исправления
         self._typed_since_fix = 0
+        # сколько символов набрано ПОСЛЕ последнего слова (ручная смена
+        # раскладки слова разрешена, только если слово — последнее на экране)
+        self._typed_after_word = 0
         self._app_cache = {}
         self._name_buf = ctypes.create_unicode_buffer(PROCESS_NAME_MAX)
         self.hook = None
@@ -248,6 +258,9 @@ class SwitchEngine:
         app = self._foreground_app()
         if app in excluded:
             self.word = []
+            # в исключаемом приложении ручная смена раскладки тоже не нужна:
+            # слова, набранные до входа в него, уже не «последние на экране»
+            self._last_word = None
             return True
         return False
 
@@ -304,6 +317,11 @@ class SwitchEngine:
             return None
         word = "".join(self.word)
         self.word = []
+        # слово ушло на экран: оно и есть «последнее набранное» для ручной
+        # смены раскладки; после него пока ничего не набрано
+        if lang_of_chars(word) is not None:
+            self._last_word = word
+            self._typed_after_word = 0
         if len(word) < MIN_WORD_LEN:
             return None
         if lang_of_chars(word) is None:
@@ -339,23 +357,78 @@ class SwitchEngine:
         return (word, fixed, typed_layout, result["layout"],
                 terminator_vk, terminator_char)
 
+    def _set_layout(self, layout):
+        """Сменить раскладку, только если она реально меняется (ru <-> en).
+
+        WM_INPUTLANGCHANGEREQUEST без смены языка перемыкает ввод в
+        приложениях-исключениях (терминал) и хук там больше не срабатывает.
+        """
+        if layout and layout != self.layout:
+            switch_layout(layout)
+            self.layout = layout
+            self.intent = layout
+
     def _apply_fix(self, action):
         word, fixed, typed_layout, layout, term_vk, term_char = action
         self.stats["fixes"] += 1
         replace_last_word(word, fixed, term_vk, term_char)
-        # раскладку МЕНЯЕМ ТОЛЬКО если она реально сменилась (ru <-> en):
-        # WM_INPUTLANGCHANGEREQUEST без смены языка перемыкает ввод в
-        # приложениях-исключениях (терминал) и хук там больше не срабатывает
-        if layout and layout != typed_layout:
-            switch_layout(layout)
-            self.layout = layout
-            self.intent = layout
+        self._set_layout(layout)
         # запоминаем исправление для ручной отмены горячей клавишей
         self._last_applied = (word, fixed, typed_layout, layout, term_vk, term_char)
         self._typed_since_fix = 0
+        # на экране теперь лежит исправленное слово — оно и есть «последнее»
+        self._last_word = fixed
         # писать лог из колбэка хука нельзя (файловый I/O замедляет хук) —
         # строку в очередь, печатает рабочий поток
         self._fix_logs.put(f"исправлено: {word!r} -> {fixed!r} ({layout})")
+
+    def _switch_last_word_layout(self):
+        """Ручная смена раскладки ПОСЛЕДНЕГО набранного слова (Punto-style).
+
+        Слово перепечатывается «зеркалом» по физическим клавишам, раскладка
+        переключается на язык результата. В отличие от автоисправления,
+        словарей не касаемся: пользователь просит руками, слово может быть
+        и словарным (он сам решает, что набрал).
+
+        Условия: слово закончено (пробел/Enter/пунктуация — как при
+        автоисправлении) и после него ничего не печатали и не стирали.
+        Терминатор трогать не нужно: на экране «слово + пробел», пачка
+        стирает ровно слово и печатает зеркало — пробел остаётся на месте.
+
+        Отмена — той же Ctrl+Z: смена раскладки запоминается как
+        «последнее применённое действие».
+        """
+        word = self._last_word
+        if not word or self._typed_after_word:
+            return False
+        lang = lang_of_chars(word)
+        if lang is None:
+            return False
+        mirror = apply_case(word, convert(word, lang))
+        if not mirror:
+            return False
+        now = time.time()
+        if now - self._last_fix < FIX_DEBOUNCE:
+            return False
+        # в поле пароля слова не перепечатываем (тот же guard, что и для
+        # автоисправления)
+        if focused_is_password():
+            self._fix_logs.put(
+                f"поле пароля/авторизации: смена раскладки пропущена ({word!r})"
+            )
+            return False
+        self._last_fix = now
+        mirror_lang = LAYOUT_EN if lang == LAYOUT_RU else LAYOUT_RU
+        replace_last_word(word, mirror)
+        self._set_layout(mirror_lang)
+        self._last_word = mirror
+        self._typed_after_word = 0
+        # результат доступен для отмены горячей клавишей (Ctrl+Z)
+        self._last_applied = (word, mirror, lang, mirror_lang, None, None)
+        self._typed_since_fix = 0
+        self.stats["fixes"] += 1
+        self._fix_logs.put(f"раскладка слова: {word!r} -> {mirror!r} ({mirror_lang})")
+        return True
 
     # ---------- настройки и горячая клавиша отмены ----------
 
@@ -364,9 +437,16 @@ class SwitchEngine:
         if spec is None:
             self._undo_mods = frozenset()
             self._undo_vk = None
-            return
-        self._undo_mods, base = spec
-        self._undo_vk = _base_to_vk(base)
+        else:
+            self._undo_mods, base = spec
+            self._undo_vk = _base_to_vk(base)
+        spec = parse_hotkey(self.config.get("switch_hotkey", "ctrl+shift+f"))
+        if spec is None:
+            self._switch_mods = frozenset()
+            self._switch_vk = None
+        else:
+            self._switch_mods, base = spec
+            self._switch_vk = _base_to_vk(base)
 
     def _refresh_config(self):
         """Перечитать config.json (только из рабочего потока, не из хука)."""
@@ -403,9 +483,8 @@ class SwitchEngine:
             self.layout = lay
             self.intent = lay
 
-    def _mods_match(self):
-        """Нажеты ли ровно те модификаторы, что заданы для хоткея."""
-        mods = self._undo_mods
+    def _mods_match(self, mods):
+        """Нажаты ли ровно те модификаторы, что заданы для хоткея."""
         ctrl = bool(user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
         shift = bool(user32.GetAsyncKeyState(VK_SHIFT) & 0x8000)
         alt = bool(user32.GetAsyncKeyState(VK_MENU) & 0x8000)
@@ -465,7 +544,7 @@ class SwitchEngine:
                     return self._pass(ncode, msg, lparam)
                 # горячая клавиша отмены последнего исправления
                 if self._undo_vk is not None and kb.vkCode == self._undo_vk:
-                    ok_mods = self._mods_match()
+                    ok_mods = self._mods_match(self._undo_mods)
                     ok_undo = ok_mods and self._undo_last_fix()
                     if not ok_undo and self.config.get("debug"):
                         self._fix_logs.put(
@@ -474,6 +553,17 @@ class SwitchEngine:
                         )
                     if ok_undo:
                         return 1              # съели: откатили своё исправление
+                # горячая клавиша ручной смены раскладки последнего слова
+                if self._switch_vk is not None and kb.vkCode == self._switch_vk:
+                    ok_mods = self._mods_match(self._switch_mods)
+                    ok_switch = ok_mods and self._switch_last_word_layout()
+                    if not ok_switch and self.config.get("debug"):
+                        self._fix_logs.put(
+                            f"hotkey switch: mods={ok_mods} last_word={self._last_word!r} "
+                            f"typed_after={self._typed_after_word}"
+                        )
+                    if ok_switch:
+                        return 1              # съели: перепечатали слово зеркалом
                 lay = self._layout_code()
                 if lay and lay != self.layout:
                     self.layout = lay
@@ -482,9 +572,11 @@ class SwitchEngine:
                     if self.word:
                         self.word.pop()
                     self._typed_since_fix += 1
+                    self._typed_after_word += 1
                     return self._pass(ncode, msg, lparam)
                 if kb.vkCode in (VK_RETURN, VK_TAB):
                     self._typed_since_fix += 1
+                    self._typed_after_word += 1
                     action = self._finish_word(terminator_vk=kb.vkCode)
                     if action:
                         self._swallow_vk = kb.vkCode
@@ -501,6 +593,7 @@ class SwitchEngine:
                 if ch is None:
                     return self._pass(ncode, msg, lparam)
                 self._typed_since_fix += 1
+                self._typed_after_word += 1
                 if ch in WORD_TERMINATORS:
                     action = self._finish_word(terminator_char=ch)
                     if action:

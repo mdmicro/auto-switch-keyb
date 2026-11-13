@@ -55,7 +55,7 @@ def _run_window(engine, log, on_ready=None):
 
     root = tk.Toplevel(hotkey_text)
     root.title(f"Auto Switch Keyb {__version__} — настройки")
-    root.geometry("440x420")
+    root.geometry("440x500")
 
     frame = ttk.Frame(root, padding=12)
     frame.pack(fill="both", expand=True)
@@ -86,6 +86,33 @@ def _run_window(engine, log, on_ready=None):
     current = ttk.Label(hot, text=f"Текущая: {cfg.get('undo_hotkey', '')}",
                         foreground="#444")
     current.pack(anchor="w")
+
+    # ---------- горячая клавиша ручной смены раскладки слова ----------
+    swt = ttk.LabelFrame(frame, text="Горячая клавиша смены раскладки последнего слова",
+                         padding=8)
+    swt.pack(fill="x", pady=(10, 0))
+
+    swt_mods_vars = {}
+    swt_mods_row = ttk.Frame(swt)
+    swt_mods_row.pack(fill="x")
+    ttk.Label(swt_mods_row, text="Модификаторы:").pack(side="left")
+    for name in MODIFIER_OPTIONS:
+        var = tk.BooleanVar()
+        swt_mods_vars[name] = var
+        ttk.Checkbutton(swt_mods_row, text=name, variable=var).pack(side="left", padx=4)
+
+    swt_base_row = ttk.Frame(swt)
+    swt_base_row.pack(fill="x", pady=(6, 0))
+    ttk.Label(swt_base_row, text="Клавиша:").pack(side="left")
+    swt_base_var = tk.StringVar()
+    ttk.Combobox(swt_base_row, textvariable=swt_base_var, values=BASE_KEYS,
+                 width=8, state="normal").pack(side="left", padx=4)
+
+    ttk.Label(swt, text="Слово перепечатывается в другой раскладке (по физическим клавишам).",
+              foreground="#666").pack(anchor="w", pady=(4, 0))
+    swt_current = ttk.Label(swt, text=f"Текущая: {cfg.get('switch_hotkey', '')}",
+                            foreground="#444")
+    swt_current.pack(anchor="w")
 
     # ---------- исключаемые приложения ----------
     apps = ttk.LabelFrame(frame, text="Не исправлять в приложениях", padding=8)
@@ -145,6 +172,11 @@ def _run_window(engine, log, on_ready=None):
         for name, v in mods_vars.items():
             v.set(name in mods)
         base_var.set(base_of(hotkey))
+        swt_hotkey = cfg.get("switch_hotkey", DEFAULT_CONFIG["switch_hotkey"])
+        swt_mods = parse_mods(swt_hotkey)
+        for name, v in swt_mods_vars.items():
+            v.set(name in swt_mods)
+        swt_base_var.set(base_of(swt_hotkey))
         list_var.set(list(cfg.get("excluded_apps", [])))
         log_var.set(bool(cfg.get("log_fixes", True)))
 
@@ -157,6 +189,10 @@ def _run_window(engine, log, on_ready=None):
         for name, v in mods_vars.items():
             v.set(name in mods)
         base_var.set(base_of(DEFAULT_CONFIG["undo_hotkey"]))
+        swt_mods = parse_mods(DEFAULT_CONFIG["switch_hotkey"])
+        for name, v in swt_mods_vars.items():
+            v.set(name in swt_mods)
+        swt_base_var.set(base_of(DEFAULT_CONFIG["switch_hotkey"]))
         list_var.set(list(DEFAULT_CONFIG["excluded_apps"]))
         log_var.set(bool(DEFAULT_CONFIG["log_fixes"]))
 
@@ -170,18 +206,30 @@ def _run_window(engine, log, on_ready=None):
         if parse_hotkey(text) is None:
             messagebox.showerror(
                 "Настройки",
-                "Некорректная горячая клавиша. Нужен модификатор (Ctrl/Shift/Alt) "
+                "Некорректная горячая клавиша отмены. Нужен модификатор (Ctrl/Shift/Alt) "
                 "и буква/цифра, либо одиночная F1–F12.",
+                parent=root,
+            )
+            return
+        swt_mods = frozenset(n for n, v in swt_mods_vars.items() if v.get())
+        swt_text = "+".join(sorted(swt_mods) + [swt_base_var.get().strip().lower()])
+        if parse_hotkey(swt_text) is None:
+            messagebox.showerror(
+                "Настройки",
+                "Некорректная горячая клавиша смены раскладки. Нужен модификатор "
+                "(Ctrl/Shift/Alt) и буква/цифра, либо одиночная F1–F12.",
                 parent=root,
             )
             return
         new_cfg = {
             "undo_hotkey": text,
+            "switch_hotkey": swt_text,
             "excluded_apps": list(box.get(0, "end")),
             "log_fixes": log_var.get(),
         }
         if save_config(new_cfg):
             current.config(text=f"Текущая: {text}")
+            swt_current.config(text=f"Текущая: {swt_text}")
             if engine is not None:
                 engine.refresh_now()
             if log:
