@@ -55,10 +55,21 @@ def _run_window(engine, log, on_ready=None):
 
     root = tk.Toplevel(hotkey_text)
     root.title(f"Auto Switch Keyb {__version__} — настройки")
-    root.geometry("440x500")
+    # Высота с запасом: содержимое требует ~530 px (плюс pady), при жёстком
+    # размере меньше требуемого Tkinter сжимает фреймы, и нижняя панель
+    # кнопок («Сохранить и применить») схлопывалась в 1 px и исчезала.
+    root.geometry("480x680")
+    root.minsize(440, 560)
 
     frame = ttk.Frame(root, padding=12)
     frame.pack(fill="both", expand=True)
+
+    # ---------- панель кнопок: пачкуем ПЕРВОЙ и прижимаем к низу ----------
+    # Порядок pack определяет выделяемое место: панель кнопок резервирует
+    # свою высоту сразу, поэтому не схлопнется, если окно окажется ниже
+    # содержимого (на малых экранах / при высоком DPI).
+    btns = ttk.Frame(frame)
+    btns.pack(side="bottom", fill="x", pady=(12, 4))
 
     # ---------- горячая клавиша отмены ----------
     hot = ttk.LabelFrame(frame, text="Горячая клавиша отмены исправления", padding=8)
@@ -196,10 +207,7 @@ def _run_window(engine, log, on_ready=None):
         list_var.set(list(DEFAULT_CONFIG["excluded_apps"]))
         log_var.set(bool(DEFAULT_CONFIG["log_fixes"]))
 
-    # ---------- кнопки ----------
-    btns = ttk.Frame(frame)
-    btns.pack(fill="x", pady=(12, 0))
-
+    # ---------- обработчик кнопки «Сохранить» ----------
     def save():
         mods = frozenset(n for n, v in mods_vars.items() if v.get())
         text = "+".join(sorted(mods) + [base_var.get().strip().lower()])
