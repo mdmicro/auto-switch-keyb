@@ -52,6 +52,12 @@ def _run_window(engine, log, on_ready=None):
     cfg = load_config()
     hotkey_text = tk.Tk()
     hotkey_text.withdraw()
+    # ВАЖНО: все tk-переменные этого окна создаются с master=hotkey_text.
+    # Без master BooleanVar/StringVar привязываются к глобальному
+    # tk._default_root - интерпретатору ПЕРВОГО когда-либо окна. После его
+    # закрытия такой интерпретатор мёртв: при повторном открытии .set()
+    # писал бы в мёртвый интерпретатор, и поля нового окна оставались бы
+    # пустыми (значения из config.json «не подгружались»).
 
     root = tk.Toplevel(hotkey_text)
     root.title(f"Auto Switch Keyb {__version__} — настройки")
@@ -80,14 +86,14 @@ def _run_window(engine, log, on_ready=None):
     mods_row.pack(fill="x")
     ttk.Label(mods_row, text="Модификаторы:").pack(side="left")
     for name in MODIFIER_OPTIONS:
-        var = tk.BooleanVar()
+        var = tk.BooleanVar(master=hotkey_text)
         mods_vars[name] = var
         ttk.Checkbutton(mods_row, text=name, variable=var).pack(side="left", padx=4)
 
     base_row = ttk.Frame(hot)
     base_row.pack(fill="x", pady=(6, 0))
     ttk.Label(base_row, text="Клавиша:").pack(side="left")
-    base_var = tk.StringVar()
+    base_var = tk.StringVar(master=hotkey_text)
     base_box = ttk.Combobox(base_row, textvariable=base_var, values=BASE_KEYS,
                             width=8, state="normal")
     base_box.pack(side="left", padx=4)
@@ -108,14 +114,14 @@ def _run_window(engine, log, on_ready=None):
     swt_mods_row.pack(fill="x")
     ttk.Label(swt_mods_row, text="Модификаторы:").pack(side="left")
     for name in MODIFIER_OPTIONS:
-        var = tk.BooleanVar()
+        var = tk.BooleanVar(master=hotkey_text)
         swt_mods_vars[name] = var
         ttk.Checkbutton(swt_mods_row, text=name, variable=var).pack(side="left", padx=4)
 
     swt_base_row = ttk.Frame(swt)
     swt_base_row.pack(fill="x", pady=(6, 0))
     ttk.Label(swt_base_row, text="Клавиша:").pack(side="left")
-    swt_base_var = tk.StringVar()
+    swt_base_var = tk.StringVar(master=hotkey_text)
     ttk.Combobox(swt_base_row, textvariable=swt_base_var, values=BASE_KEYS,
                  width=8, state="normal").pack(side="left", padx=4)
 
@@ -129,7 +135,7 @@ def _run_window(engine, log, on_ready=None):
     apps = ttk.LabelFrame(frame, text="Не исправлять в приложениях", padding=8)
     apps.pack(fill="both", expand=True, pady=(10, 0))
 
-    list_var = tk.StringVar()
+    list_var = tk.StringVar(master=hotkey_text)
     box = tk.Listbox(apps, listvariable=list_var, height=8, exportselection=False)
     box.pack(side="left", fill="both", expand=True)
     scroll = ttk.Scrollbar(apps, command=box.yview)
@@ -157,7 +163,7 @@ def _run_window(engine, log, on_ready=None):
         for idx in reversed(box.curselection()):
             box.delete(idx)
 
-    add_var = tk.StringVar()
+    add_var = tk.StringVar(master=hotkey_text)
     entry = ttk.Entry(side, textvariable=add_var, width=22)
     entry.pack()
     ttk.Button(side, text="Добавить", command=add_app).pack(pady=(4, 0))
@@ -168,7 +174,7 @@ def _run_window(engine, log, on_ready=None):
     # ---------- лог ----------
     log_frame = ttk.Frame(frame)
     log_frame.pack(fill="x", pady=(10, 0))
-    log_var = tk.BooleanVar()
+    log_var = tk.BooleanVar(master=hotkey_text)
     ttk.Checkbutton(log_frame, text="Писать исправления в локальный лог",
                     variable=log_var).pack(anchor="w")
 
