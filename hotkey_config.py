@@ -6,6 +6,8 @@ config.json:
   "undo_hotkey": "ctrl+z",               # горячая клавиша отмены исправления
   "switch_hotkey": "ctrl+shift+f",       # ручная смена раскладки последнего слова
   "excluded_apps": ["chrome.exe", ...],  # процессы, где автоисправление выключено
+  "console_apps": ["far.exe", ...],      # доп. процессы-консоли: слово стирается
+                                         # точным числом Backspace'ов, не границей
   "log_fixes": true                      # писать ли исправления в локальный лог
 }
 
@@ -25,6 +27,7 @@ DEFAULT_CONFIG = {
     "undo_hotkey": "ctrl+z",
     "switch_hotkey": "ctrl+shift+f",
     "excluded_apps": ["logonui.exe", "credentialui.exe"],
+    "console_apps": [],   # дополнительные процессы-консоли (Far, wt, ...)
     "log_fixes": True,
     "debug": False,       # подробные строки диагностики в log.txt
 }

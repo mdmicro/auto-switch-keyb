@@ -24,6 +24,7 @@ KEYEVENTF_UNICODE = 0x0004
 
 VK_BACK = 0x08
 VK_CONTROL = 0x11
+VK_ESCAPE = 0x1B
 
 WM_INPUTLANGCHANGEREQUEST = 0x0050
 
@@ -126,27 +127,67 @@ def send_backspaces(count):
     _send(inputs)
 
 
-def replace_last_word(old_word, new_word, terminator_vk=None, terminator_char=None):
+def _word_delete():
+    """Ctrl+Backspace — «стереть предыдущее слово» средствами приложения."""
+    return [
+        _key_input(VK_CONTROL, 0, 0),
+        _key_input(VK_BACK, 0, 0),
+        _key_input(VK_BACK, 0, KEYEVENTF_KEYUP),
+        _key_input(VK_CONTROL, 0, KEYEVENTF_KEYUP),
+    ]
+
+
+def _backspaces(n):
+    inputs = []
+    for _ in range(n):
+        inputs.append(_key_input(VK_BACK, 0, 0))
+        inputs.append(_key_input(VK_BACK, 0, KEYEVENTF_KEYUP))
+    return inputs
+
+
+def replace_last_word(old_word, new_word, terminator_vk=None, terminator_char=None,
+                      erase="count", erase_count=None, tail=""):
     """Заменить последнее набранное слово на экране ОДНОЙ атомарной пачкой:
 
-        N раз Backspace  ->  new_word  ->  терминатор
+        стереть (слово + хвост)  ->  new_word  ->  хвост  ->  терминатор
 
-    Хук «съедает» клавишу-терминатор (пробел/Enter/Tab), когда отправляет
-    слово на исправление, и передаёт её сюда: пачка дописывает терминатор
-    сама. Так пачка встает ровно на место слова, а всё, что пользователь
-    успел набрать, придёт строго после пачки.
+    Хвост (`tail`) — ВСЁ, что лежит на экране сразу после слова: пробел
+    или запятая, которыми пользователь закончил слово, и автозакрытые
+    скобки/кавычки и автокоррект, которые приложение добавило само.
+    Хвост стирается вместе со словом и печатается обратно после нового
+    слова, поэтому на экране заменяется слово ЦЕЛИКОМ и каретка
+    остаётся там же.
 
+    Раньше хвост не учитывался: пачка слала len(слова) Backspace'ов,
+    первый из них съедал пробел, и слово стиралось не с начала, а с
+    конца — на экране оставалась начальная буква старой раскладки, к
+    которой дописывалось зеркало («pзкште» вместо «зкште»).
+
+    erase -- 'count': erase_count Backspace'ов (точное число, когда движок
+             знает длину: прочитал текст у каретки, или печатает в
+             посимвольную консоль / нативный edit-контрол, где
+             Ctrl+Backspace не понимают);
+             'word': len(tail) Backspace'ов + Ctrl+Backspace — стирает
+             «слово до границы» средствами приложения (браузер, офис,
+             мессенджер, редактор), убирая и автосимволы, которых движок
+             не видел.
+    erase_count -- переопределяет длину стирания (режим 'count').
     terminator_vk  -- код клавиши (VK_RETURN, VK_TAB), если терминатор —
-                      служебная клавиша;
-    terminator_char -- символ (пробел, запятая...), печатается Unicode-парой.
+                      служебная клавиша, «съеденная» хуком: пачка печатает
+                      её сама, на экране её нет;
+    terminator_char -- печатный терминатор (пробел, запятая...),
+                      напечатанный пачкой; входит в tail.
     """
     if not old_word:
         return
-    inputs = []
-    for _ in range(len(old_word)):
-        inputs.append(_key_input(VK_BACK, 0, 0))
-        inputs.append(_key_input(VK_BACK, 0, KEYEVENTF_KEYUP))
+    if erase == "word":
+        inputs = _backspaces(len(tail)) + _word_delete()
+    else:
+        inputs = _backspaces(len(old_word) + len(tail) if erase_count is None
+                             else erase_count)
     inputs.extend(_unicode_pair(new_word))
+    if tail:
+        inputs.extend(_unicode_pair(tail))
     if terminator_vk is not None:
         inputs.append(_key_input(terminator_vk, 0, 0))
         inputs.append(_key_input(terminator_vk, 0, KEYEVENTF_KEYUP))

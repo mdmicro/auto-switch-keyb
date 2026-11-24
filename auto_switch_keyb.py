@@ -21,6 +21,7 @@
     flags.py         иконки-флаги раскладок
 """
 
+import ctypes
 import sys
 import time
 
@@ -28,10 +29,28 @@ from engine import SwitchEngine
 from hotkey_config import load_config
 from paths import app_data_dir
 from tray import run_tray
-from version import __version__
+from version import __version__, APP_NAME
 
 MAX_LOG_BYTES = 512 * 1024
 LOG_ENABLED_KEY = "log_fixes"
+
+# Одна копия программы на сессию. Две запущенные копии означают ДВА
+# глобальных хука WH_KEYBOARD_LL на одном вводе: обе стирают и печатают
+# последнее слово, вторая печатает «поверх» результата первой — на экране
+# получается смесь раскладок. Именованный мьютекс на процесс-сеанс.
+SINGLE_INSTANCE_MUTEX = "Local\\AutoSwitchKeyb.single.instance"
+
+
+def acquire_single_instance():
+    """True, если это первый запуск. Уже запущенный экземпляр — False."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.restype = ctypes.c_void_p
+    kernel32.CreateMutexW.argtypes = (ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p)
+    handle = kernel32.CreateMutexW(None, False, SINGLE_INSTANCE_MUTEX)
+    if not handle:
+        return True                     # мьютекс не создали — не мешаем запуску
+    ERROR_ALREADY_EXISTS = 183
+    return ctypes.get_last_error() != ERROR_ALREADY_EXISTS
 
 
 def current_log_enabled():
@@ -70,6 +89,19 @@ def logger(message, force=False):
 
 
 def main():
+    if not acquire_single_instance():
+        # вторая копия: её хук удвоил бы чужие исправления (см. выше)
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                f"{APP_NAME} уже запущен (смотрите значок-флаг в трее).\n"
+                "Запустите вторую копию нельзя: два экземпляра исправляют "
+                "одно слово дважды, и на экране появляется смесь раскладок.",
+                APP_NAME, 0x30,
+            )
+        except Exception:
+            pass
+        return
     # настройки передаём движку как callable: изменения из окна «Настройки»
     # подхватываются без рестарта (рабочий поток перечитывает config.json)
     engine = SwitchEngine(load_config, logger)

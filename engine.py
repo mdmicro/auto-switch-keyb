@@ -7,26 +7,33 @@ WH_KEYBOARD_LL слушает весь ввод клавиатуры в сист
 раскладке — настоящее слово, то слово заменяется и раскладка переключается
 на язык результата.
 
-Три важных правила:
+Правила, на которых держится корректность замены:
 1. Исправление исполняется СИНХРОННО в колбэке хука и ОДНОЙ атомарной
-   пачкой SendInput («Backspace'ы + исправленное слово + терминатор»):
-   так пачка гарантированно попадает в поток ввода раньше следующих
-   клавиш пользователя, и каретка не разъезжается.
-2. Клавиша-терминатор (пробел/Enter/Tab), на которой слово ушло в
+   пачкой SendInput («стирание + слово + терминатор»): так пачка
+   гарантированно попадает в поток ввода раньше следующих клавиш
+   пользователя, и каретка не разъезжается.
+2. Стирать нужно «слово + ХВОСТ»: всё, что лежит на экране сразу за
+   словом — автозакрытые скобки/кавычки, автокоррект, пробел/Enter,
+   которыми слово закончили (для ручной смены раскладки). Пачка стирает
+   их вместе со словом и печатает хвост обратно. Стирать только
+   len(слово) — баг: первый Backspace съедает терминатор, слово
+   стирается с конца, и на экране остается половина в старой раскладке.
+3. Клавиша-терминатор (пробел/Enter/Tab), на которой слово ушло в
    исправление, «съедается» хуком (и её keyup тоже), а терминатор
    дописывает сама пачка — на экране слово занимает ровно своё место.
-3. Собственные события SendInput помечаются magic-значением dwExtraInfo
+4. Собственные события SendInput помечаются magic-значением dwExtraInfo
    и игнорируются хуком, чтобы не исправлять собственный вывод.
    Файловый лог из колбэка не пишется (I/O замедляет хук) — строки
    лога складываются в очередь, их пишет рабочий поток.
-4. Ctrl+Z — ручная отмена последнего исправления (как в Punto Switcher):
-   откат стирает исправленное слово, печатает исходное и возвращает
-   раскладку. Отменяется ровно одно последнее исправление; после отмены
-   Ctrl+Z снова работает как обычная «отменить» приложения.
-5. Ctrl+Shift+F — ручная смена раскладки ПОСЛЕДНЕГО набранного слова
-   (как в Punto Switcher): слово перепечатывается «зеркалом» (по физическим
-   клавишам) и раскладка переключается. Работает для любого слова, даже
-   словарного; после слова не должно быть новых символов и пробела.
+5. Ctrl+Z — ручная отмена последнего исправления: откат стирает
+   исправленное слово, печатает исходное и возвращает раскладку.
+   Откатывается ровно одно последнее исправление; исправления,
+   законченные Enter/Tab, хоткеем не откатываются (передача
+   «отменить» приложению).
+6. Ctrl+Shift+F — ручная смена раскладки ПОСЛЕДНЕГО набранного слова:
+   слово перепечатывается «зеркалом» (по физическим клавишам) и
+   раскладка переключается. Работает для любого слова, даже словарного;
+   после слова не должно быть новых символов.
 """
 
 import ctypes
@@ -39,7 +46,13 @@ from corrector import MIN_WORD_LEN, WordDicts, apply_case, decide
 from fixer import INJECTED_MAGIC, replace_last_word, switch_layout
 from hotkey_config import parse_hotkey
 from layout_map import LAYOUT_EN, LAYOUT_RU, convert, lang_of_chars
-from password_guard import focused_is_password
+from password_guard import (
+    CONSOLE_WINDOW_CLASSES,
+    EDIT_CLASSES,
+    focused_is_password,
+    focused_text_before_caret,
+    focused_window_classes,
+)
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -73,7 +86,6 @@ VK_LSHIFT = 0xA0
 VK_LCONTROL = 0xA2
 VK_LMENU = 0xA4
 VK_PACKET = 0xE7
-VK_Z = ord("Z")
 
 # базовая клавиша хоткея -> VK-код (для распознавания в хуке)
 def _base_to_vk(base):
@@ -98,6 +110,23 @@ PROCESS_NAME_MAX = 260
 FIX_DEBOUNCE = 0.25
 # как часто перечитывать настройки из config.json (callable-источник)
 CONFIG_TTL = 2.0
+# насколько символов после слова смотрим в текст у каретки, считая «хвост»
+MAX_EXTRA_TAIL = 6
+
+# Процессы консольных приложений: cmd, conhost, PowerShell, Windows
+# Terminal, Far, bash/Git-Bash, WSL. В консоли текст у каретки через UIA
+# не читается (TextPattern там нет), поэтому слово стирают точно по длине
+# «слово + хвост» и всегда оставляют съеденный терминатор пачке.
+# Список расширяется через config["console_apps"].
+CONSOLE_APPS = {
+    "cmd.exe", "conhost.exe", "powershell.exe", "pwsh.exe",
+    "windowsterminal.exe", "wt.exe", "terminal.exe",
+    "winpty-agent.exe", "clink.exe",
+    "bash.exe", "sh.exe", "zsh.exe", "wsl.exe", "far.exe",
+}
+# Ctrl+Backspace (стереть «слово до границы») понимают браузеры, офис,
+# мессенджеры, редакторы; нативный edit (Notepad, Delphi TEdit, RichEdit —
+# EDIT_CLASSES в password_guard.py) — нет, там только обычные Backspace'ы.
 
 EXCLUDED_APPS = {
     "logonui.exe",        # экран входа / поле пароля
@@ -173,11 +202,14 @@ class SwitchEngine:
         self._last_fix = 0.0
         # последнее исправление для ручной отмены (Ctrl+Z по умолчанию):
         # (набранное, исправленное, раскладка_набора, раскладка_результата,
-        #  терминатор_vk, терминатор_char)
+        #  терминатор_vk, терминатор_char, хвост)
         self._last_applied = None
         # последнее набранное слово (для ручной смены раскладки слова):
-        # текст слова, каким он ушёл на экран
+        # текст слова, каким он ушёл на экран, и что на экране сразу за ним
+        # (пробел/пунктуация, которыми слово закончили: эти клавиши не
+        # съедаются и остаются в тексте — при замене их тоже стираем)
         self._last_word = None
+        self._last_word_tail = None
         # сколько символов пользователь набрал после последнего исправления
         self._typed_since_fix = 0
         # сколько символов набрано ПОСЛЕ последнего слова (ручная смена
@@ -253,6 +285,86 @@ class SwitchEngine:
         self._app_cache[pid.value] = name
         return name
 
+    def _is_console(self):
+        """Фокус в консольном/терминальном окне (cmd, conhost, PowerShell,
+        Windows Terminal, Far, WSL)? Имя процесса + классы окон."""
+        app = self._foreground_app()
+        if app in CONSOLE_APPS or app in set(self.config.get("console_apps", ())):
+            return True
+        win_cls, focus_cls = focused_window_classes()
+        return win_cls in CONSOLE_WINDOW_CLASSES or focus_cls in CONSOLE_WINDOW_CLASSES
+
+    def _erase_mode(self):
+        """Чем стирать слово, когда хвост экрана прочитать нельзя.
+
+        count -- ровно len(слово + хвост) Backspace'ами: консоли (cmd,
+               conhost, PowerShell, Windows Terminal: DosKey и PSReadLine
+               печатают посимвольно, автосимволов нет) и нативные
+               edit-контролы (Notepad, Delphi TEdit, RichEdit), где
+               Ctrl+Backspace не понимают.
+        word  -- Backspace'ами стирается хвост, затем Ctrl+Backspace
+               стирает «слово до границы» средствами приложения: браузер,
+               офис, мессенджер, редактор убирают и автозакрытые скобки /
+               автокоррект, которых движок не видел.
+        """
+        if self._is_console():
+            return "count"
+        win_cls, focus_cls = focused_window_classes()
+        if focus_cls:
+            return "count" if focus_cls in EDIT_CLASSES else "word"
+        if win_cls:
+            return "count" if win_cls in EDIT_CLASSES else "word"
+        return "count"
+
+    def _screen_tail(self, word):
+        """Что лежит на экране СРАЗУ ПОСЛЕ слова (текст у каретки, UIA).
+
+        Это «хвост», который нужно стереть вместе со словом и вернуть на
+        место: автозакрытые скобки/кавычки, автокоррект, автодополнение.
+
+        Возвращает хвост ('' — каретка сразу за словом), None — прочитать
+        нельзя (консоль: TextPattern там нет; решаем по режиму _erase_mode),
+        False — у каретки нет нашего слова (каретку переставили, поле с
+        автодополнением «уехало»): стирать нельзя, съедим чужой текст.
+        """
+        tail = focused_text_before_caret(len(word) + MAX_EXTRA_TAIL)
+        if tail is None:
+            return None
+        idx = tail.lower().rfind(word.lower())
+        if idx < 0:
+            return False
+        rest = tail[idx + len(word):]
+        if len(rest) > MAX_EXTRA_TAIL:
+            return False
+        return rest
+
+    def _word_at_caret(self):
+        """Слово ПЕРЕД кареткой и его хвост по UIA-тексту: (word, tail) | None.
+
+        Нужно для ручной смены раскладки слова, которое не закончено
+        пробелом (пользователь нажал хоткей, печатая слово в редакторе).
+        Слово строим из символов перед кареткой до границы. Перевод строки
+        в хвосте — отказ: в нативных edit перевод строки занимает 2
+        символа, число Backspace'ов для него неоднозначно.
+        """
+        text = focused_text_before_caret(64)
+        if not text:
+            return None
+        chars = []
+        for ch in reversed(text):
+            if ch in WORD_TERMINATORS:
+                break
+            if lang_of_chars(ch) is not None:
+                chars.append(ch)
+            elif ch in WORD_INNER and chars:
+                chars.append(ch)
+            else:
+                break
+        word = "".join(reversed(chars))
+        if len(word) < MIN_WORD_LEN:
+            return None
+        return word, ""
+
     def _in_excluded_app(self):
         excluded = set(self.config.get("excluded_apps", EXCLUDED_APPS))
         app = self._foreground_app()
@@ -261,6 +373,7 @@ class SwitchEngine:
             # в исключаемом приложении ручная смена раскладки тоже не нужна:
             # слова, набранные до входа в него, уже не «последние на экране»
             self._last_word = None
+            self._last_word_tail = None
             return True
         return False
 
@@ -303,12 +416,34 @@ class SwitchEngine:
 
     # ---------- разбор слов ----------
 
+    def _record_last_word(self, word, terminator_vk, terminator_char):
+        """Запомнить слово как «последнее на экране» для ручной смены раскладки.
+
+        Хвост на экране после слова:
+          печатный терминатор (пробел, запятая...) — он НЕ съедается и
+          уходит в приложение, то есть реально лежит за словом;
+          Enter/Tab — граница строки: дальше Backspace'ами лезть нельзя
+          (в консоли Enter исполняет команду, в редакторе перевод строки
+          занимает 2 символа), такое слово для ручной смены не помечаем.
+        """
+        if lang_of_chars(word) is None:
+            self._last_word = None
+            self._last_word_tail = None
+            return
+        self._last_word = word
+        self._typed_after_word = 0
+        if terminator_vk is not None:
+            self._last_word = None
+            self._last_word_tail = None
+        else:
+            self._last_word_tail = terminator_char or ""
+
     def _finish_word(self, terminator_vk=None, terminator_char=None):
         """Проверить накопленное слово.
 
         Возвращает действие (tuple) для немедленного исполнения ИЛИ None.
         Исправление исполняется СИНХРОННО внутри колбэка хука: пачка
-        «Backspace'ы + слово + терминатор» уходит в очередь ввода раньше
+        «стирание + слово + терминатор» уходит в очередь ввода раньше
         следующих клавиш пользователя, поэтому каретка не разъезжается.
         Слово на исправлении означает, что хук обязан «съесть»
         клавишу-терминатор (клавиатура не должна отдать её приложению).
@@ -318,10 +453,8 @@ class SwitchEngine:
         word = "".join(self.word)
         self.word = []
         # слово ушло на экран: оно и есть «последнее набранное» для ручной
-        # смены раскладки; после него пока ничего не набрано
-        if lang_of_chars(word) is not None:
-            self._last_word = word
-            self._typed_after_word = 0
+        # смены раскладки
+        self._record_last_word(word, terminator_vk, terminator_char)
         if len(word) < MIN_WORD_LEN:
             return None
         if lang_of_chars(word) is None:
@@ -347,15 +480,24 @@ class SwitchEngine:
         # печатает скрытый ввод, и перепечатка «не той раскладкой» испортила
         # бы пароль или показала его на экране. Проверка дорогая (UIA) —
         # только здесь, в момент реально найденного исправления
-        if result["fixed"] and focused_is_password():
+        if focused_is_password():
             self._fix_logs.put(
                 f"поле пароля/авторизации: исправление пропущено ({word!r})"
+            )
+            return None
+        # хвост на экране (автозакрытая скобка, автокоррект): печатный
+        # терминатор, на котором слово ушло в фикс, хук СЪЕДАЕТ — его на
+        # экране нет, в стирание он не входит
+        tail = self._screen_tail(word)
+        if tail is False:
+            self._fix_logs.put(
+                f"у каретки нет слова {word!r}: исправление пропущено"
             )
             return None
         self._last_fix = now
         typed_layout = self.layout   # раскладка, в которой слово было набрано
         return (word, fixed, typed_layout, result["layout"],
-                terminator_vk, terminator_char)
+                terminator_vk, terminator_char, tail)
 
     def _set_layout(self, layout):
         """Сменить раскладку, только если она реально меняется (ru <-> en).
@@ -368,16 +510,42 @@ class SwitchEngine:
             self.layout = layout
             self.intent = layout
 
+    def _replace_word(self, old_word, new_word, tail, term_vk=None, term_char=None):
+        """Стереть «слово + хвост» и напечатать новое слово с хвостом.
+
+        tail -- хвост, который РЕАЛЬНО лежит на экране после слова
+                (строка; None = прочитать нельзя -> стирать вслепую по
+                режиму _erase_mode).
+        """
+        if tail is None:
+            mode = self._erase_mode()
+            erase_count = None           # len(old_word), хвост неизвестен
+            tail_out = ""
+        else:
+            mode = "count"
+            erase_count = len(old_word) + len(tail)
+            tail_out = tail
+        replace_last_word(old_word, new_word, term_vk, term_char,
+                          mode, erase_count, tail_out)
+
     def _apply_fix(self, action):
-        word, fixed, typed_layout, layout, term_vk, term_char = action
+        word, fixed, typed_layout, layout, term_vk, term_char, tail = action
         self.stats["fixes"] += 1
-        replace_last_word(word, fixed, term_vk, term_char)
+        self._replace_word(word, fixed, tail, term_vk, term_char)
         self._set_layout(layout)
         # запоминаем исправление для ручной отмены горячей клавишей
-        self._last_applied = (word, fixed, typed_layout, layout, term_vk, term_char)
+        self._last_applied = (word, fixed, typed_layout, layout,
+                              term_vk, term_char, tail)
         self._typed_since_fix = 0
-        # на экране теперь лежит исправленное слово — оно и есть «последнее»
+        # на экране теперь лежит исправленное слово: оно и есть «последнее»,
+        # за ним хвост и печатный терминатор (Enter/Tab — граница строки,
+        # ручная смена после неё не делается)
         self._last_word = fixed
+        if term_vk is not None:
+            self._last_word = None
+            self._last_word_tail = None
+        else:
+            self._last_word_tail = (tail if tail is not None else "") + (term_char or "")
         # писать лог из колбэка хука нельзя (файловый I/O замедляет хук) —
         # строку в очередь, печатает рабочий поток
         self._fix_logs.put(f"исправлено: {word!r} -> {fixed!r} ({layout})")
@@ -392,14 +560,34 @@ class SwitchEngine:
 
         Условия: слово закончено (пробел/Enter/пунктуация — как при
         автоисправлении) и после него ничего не печатали и не стирали.
-        Терминатор трогать не нужно: на экране «слово + пробел», пачка
-        стирает ровно слово и печатает зеркало — пробел остаётся на месте.
+
+        СТИРАТЬ НУЖНО «слово + ХВОСТ» — то, что лежит на экране сразу за
+        словом: пробел/запятая, которой слово закончили (эти клавиши не
+        съедаются, они ушли в приложение), автозакрытые скобки,
+        автокоррект. Раньше пачка слала ровно len(слово) Backspace'ов:
+        первый из них съедал пробел, слово стиралось с конца, и на экране
+        оставалась начальная буква старой раскладки + зеркало
+        («pзкште» вместо «зкште») — тот самый баг.
+
+        Если слово не закончено пробелом (пользователь жмёт хоткей, печатая
+        слово в редакторе/браузере), слово берём из текста ПЕРЕД кареткой.
 
         Отмена — той же Ctrl+Z: смена раскладки запоминается как
         «последнее применённое действие».
         """
         word = self._last_word
-        if not word or self._typed_after_word:
+        tail = self._last_word_tail
+        if word is None:
+            got = self._word_at_caret()
+            if got:
+                word, tail = got
+        if not word:
+            if self.config.get("debug"):
+                self._fix_logs.put("смена раскладки: нет последнего слова")
+            return False
+        if self._typed_after_word:
+            if self.config.get("debug"):
+                self._fix_logs.put("смена раскладки: после слова печатали")
             return False
         lang = lang_of_chars(word)
         if lang is None:
@@ -417,14 +605,25 @@ class SwitchEngine:
                 f"поле пароля/авторизации: смена раскладки пропущена ({word!r})"
             )
             return False
+        # экран — источник истины: перечитываем хвост, когда текст читается
+        # (у каретки нет нашего слова -> отказ; прочитали хвост -> он точный)
+        fresh = self._screen_tail(word)
+        if fresh is False:
+            self._fix_logs.put(
+                f"у каретки нет слова {word!r}: смена раскладки пропущена"
+            )
+            return False
+        if fresh is not None:
+            tail = fresh
         self._last_fix = now
         mirror_lang = LAYOUT_EN if lang == LAYOUT_RU else LAYOUT_RU
-        replace_last_word(word, mirror)
+        self._replace_word(word, mirror, tail)
         self._set_layout(mirror_lang)
         self._last_word = mirror
+        self._last_word_tail = tail
         self._typed_after_word = 0
         # результат доступен для отмены горячей клавишей (Ctrl+Z)
-        self._last_applied = (word, mirror, lang, mirror_lang, None, None)
+        self._last_applied = (word, mirror, lang, mirror_lang, None, None, tail)
         self._typed_since_fix = 0
         self.stats["fixes"] += 1
         self._fix_logs.put(f"раскладка слова: {word!r} -> {mirror!r} ({mirror_lang})")
@@ -497,19 +696,27 @@ class SwitchEngine:
 
         Откатываем, только если пользователь после исправления ничего не
         набрал (слово не изменилось). Иначе хоткей проходит приложению как
-        обычная «отменить».
+        обычная «отменить». Откат после Enter/Tab — штатному Ctrl+Z
+        приложения: посимвольно стереть перевод строки надёжно нельзя
+        (в нативных edit он занимает 2 символа).
         """
         act = self._last_applied
         if not act or self._typed_since_fix:
             return False
-        word, fixed, typed_layout, _fixed_layout, term_vk, term_char = act
-        replace_last_word(fixed, word, term_vk, term_char)
+        word, fixed, typed_layout, _fixed_layout, term_vk, term_char, tail = act
+        if term_vk is not None:
+            return False
+        self._replace_word(fixed, word, tail, None, term_char)
         if typed_layout and typed_layout != self.layout:
             switch_layout(typed_layout)
             self.layout = typed_layout
             self.intent = typed_layout
         self._last_applied = None
         self._typed_since_fix = 0
+        # на экране снова набранное слово: оно и есть «последнее»
+        self._last_word = word
+        self._last_word_tail = (tail if tail is not None else "") + (term_char or "")
+        self._typed_after_word = 0
         self._fix_logs.put(f"отменено исправление: {fixed!r} -> {word!r}")
         return True
 
@@ -555,12 +762,15 @@ class SwitchEngine:
                         return 1              # съели: откатили своё исправление
                 # горячая клавиша ручной смены раскладки последнего слова
                 if self._switch_vk is not None and kb.vkCode == self._switch_vk:
+                    # раскладку перечитываем ДО перепечатки: hotkey мог прийти
+                    # после Alt+Shift, а слово на экране — из прошлой раскладки
+                    self._sync_layout()
                     ok_mods = self._mods_match(self._switch_mods)
                     ok_switch = ok_mods and self._switch_last_word_layout()
                     if not ok_switch and self.config.get("debug"):
                         self._fix_logs.put(
                             f"hotkey switch: mods={ok_mods} last_word={self._last_word!r} "
-                            f"typed_after={self._typed_after_word}"
+                            f"tail={self._last_word_tail!r} typed_after={self._typed_after_word}"
                         )
                     if ok_switch:
                         return 1              # съели: перепечатали слово зеркалом
