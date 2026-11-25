@@ -143,6 +143,10 @@
 - Структура `INPUT` **обязательно** с union'ом, включающим `MOUSEINPUT`
   (sizeof == 40 на x64), иначе `SendInput` возвращает 0 с `GetLastError() == 87`.
 - Собственные события — с `dwExtraInfo = INJECTED_MAGIC`.
+- `release_modifiers()` — сброс зажатых `Ctrl/Shift/Alt` перед пачкой по
+  хоткею: пока модификаторы нажаты, `Backspace` превращаются в
+  `Ctrl+Backspace`, который нативный `EDIT` не понимает и не стирает слово.
+  Keyup'ы тоже помечены `INJECTED_MAGIC`, поэтому хук их игнорирует.
 - **Важно про Unicode-ввод**: `KEYEVENTF_UNICODE` приходит в хук как
   `vkCode == VK_PACKET (0xE7)`, сам символ — в `scanCode`. Хук это учитывает.
 - Клавиша-терминатор, на которой слово ушло в фикс, «съедается» хуком

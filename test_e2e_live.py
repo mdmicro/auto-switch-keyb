@@ -213,7 +213,7 @@ def run_suite(cls):
     fixer.switch_layout("en")
     pump(0.5)
     case("%s  hotkey on word w/o comma-space tail" % tag,
-         "world ", [(sw_mods, sw_vk)], "щщкве ", "ru")
+         "world ", [(sw_mods, sw_vk)], "цщкдв ", "ru")
 
 
 def main():

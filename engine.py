@@ -43,7 +43,7 @@ import time
 from ctypes import wintypes
 
 from corrector import MIN_WORD_LEN, WordDicts, apply_case, decide
-from fixer import INJECTED_MAGIC, replace_last_word, switch_layout
+from fixer import INJECTED_MAGIC, release_modifiers, replace_last_word, switch_layout
 from hotkey_config import parse_hotkey
 from layout_map import LAYOUT_EN, LAYOUT_RU, convert, lang_of_chars
 from password_guard import (
@@ -525,6 +525,11 @@ class SwitchEngine:
             mode = "count"
             erase_count = len(old_word) + len(tail)
             tail_out = tail
+        if self.config.get("debug"):
+            self._fix_logs.put(
+                f"замена: {old_word!r}->{new_word!r} erase={mode} "
+                f"count={erase_count} tail={tail_out!r}"
+            )
         replace_last_word(old_word, new_word, term_vk, term_char,
                           mode, erase_count, tail_out)
 
@@ -533,9 +538,14 @@ class SwitchEngine:
         self.stats["fixes"] += 1
         self._replace_word(word, fixed, tail, term_vk, term_char)
         self._set_layout(layout)
-        # запоминаем исправление для ручной отмены горячей клавишей
+        # запоминаем исправление для ручной отмены горячей клавишей.
+        # Хвост для отката = то, что РЕАЛЬНО лежит на экране после слова:
+        # считанный хвост + печатный терминатор, который пачка напечатала
+        # сама (hook его съел). Без терминатора откат стирает на символ
+        # меньше и оставляет голову исправленного слова ("пghbdtn").
+        visible_tail = (tail if tail is not None else "") + (term_char or "")
         self._last_applied = (word, fixed, typed_layout, layout,
-                              term_vk, term_char, tail)
+                              term_vk, term_char, visible_tail)
         self._typed_since_fix = 0
         # на экране теперь лежит исправленное слово: оно и есть «последнее»,
         # за ним хвост и печатный терминатор (Enter/Tab — граница строки,
@@ -617,6 +627,10 @@ class SwitchEngine:
             tail = fresh
         self._last_fix = now
         mirror_lang = LAYOUT_EN if lang == LAYOUT_RU else LAYOUT_RU
+        # хоткей ещё удерживает Ctrl+Shift: без сброса модификаторов пачка
+        # Backspace'ов превратится в Ctrl+Backspace и нативный EDIT не сотрёт
+        # слово (см. fixer.release_modifiers)
+        release_modifiers()
         self._replace_word(word, mirror, tail)
         self._set_layout(mirror_lang)
         self._last_word = mirror
@@ -706,7 +720,11 @@ class SwitchEngine:
         word, fixed, typed_layout, _fixed_layout, term_vk, term_char, tail = act
         if term_vk is not None:
             return False
-        self._replace_word(fixed, word, tail, None, term_char)
+        # отмена тоже вызывается хоткеем с зажатыми модификаторами.
+        # tail уже включает печатный терминатор, который напечатала пачка
+        # при исправлении, -- отдельно его больше не дописываем.
+        release_modifiers()
+        self._replace_word(fixed, word, tail, None, None)
         if typed_layout and typed_layout != self.layout:
             switch_layout(typed_layout)
             self.layout = typed_layout
@@ -715,7 +733,7 @@ class SwitchEngine:
         self._typed_since_fix = 0
         # на экране снова набранное слово: оно и есть «последнее»
         self._last_word = word
-        self._last_word_tail = (tail if tail is not None else "") + (term_char or "")
+        self._last_word_tail = tail
         self._typed_after_word = 0
         self._fix_logs.put(f"отменено исправление: {fixed!r} -> {word!r}")
         return True

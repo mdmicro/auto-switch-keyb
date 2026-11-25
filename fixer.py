@@ -23,8 +23,13 @@ KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_UNICODE = 0x0004
 
 VK_BACK = 0x08
+VK_SHIFT = 0x10
 VK_CONTROL = 0x11
+VK_MENU = 0x12
 VK_ESCAPE = 0x1B
+VK_LSHIFT, VK_RSHIFT = 0xA0, 0xA1
+VK_LCONTROL, VK_RCONTROL = 0xA2, 0xA3
+VK_LMENU, VK_RMENU = 0xA4, 0xA5
 
 WM_INPUTLANGCHANGEREQUEST = 0x0050
 
@@ -79,6 +84,8 @@ user32.PostMessageW.argtypes = (
 user32.PostMessageW.restype = wintypes.BOOL
 user32.GetForegroundWindow.restype = wintypes.HWND
 user32.GetForegroundWindow.argtypes = ()
+user32.GetAsyncKeyState.restype = ctypes.c_short
+user32.GetAsyncKeyState.argtypes = (ctypes.c_int,)
 
 
 def _key_input(vk, scan, flags):
@@ -100,6 +107,30 @@ def _send(inputs):
         return 0
     arr = (INPUT * n)(*inputs)
     return user32.SendInput(n, arr, ctypes.sizeof(INPUT))
+
+
+def release_modifiers():
+    """Снять зажатые Ctrl/Shift/Alt перед пачкой замены по хоткею.
+
+    Горячая клавиша доходит до хука, пока модификаторы ещё нажаты. Если в
+    этом состоянии слать обычные VK_BACK, приложение видит Ctrl+Backspace
+    (нативный EDIT его не понимает и вообще не стирает — слово остаётся,
+    а зеркало дописывается рядом). Keyup'ы с нашей magic-меткой хук
+    игнорирует, но состояние клавиатуры они сбрасывают, поэтому дальше в
+    пачке идут уже настоящие одиночные Backspace'ы.
+    """
+    inputs = []
+    for generic, left, right in (
+        (VK_SHIFT, VK_LSHIFT, VK_RSHIFT),
+        (VK_CONTROL, VK_LCONTROL, VK_RCONTROL),
+        (VK_MENU, VK_LMENU, VK_RMENU),
+    ):
+        if user32.GetAsyncKeyState(generic) & 0x8000:
+            inputs.append(_key_input(left, 0, KEYEVENTF_KEYUP))
+            inputs.append(_key_input(right, 0, KEYEVENTF_KEYUP))
+    if inputs:
+        return _send(inputs)
+    return 0
 
 
 def _unicode_pair(text):
@@ -193,7 +224,7 @@ def replace_last_word(old_word, new_word, terminator_vk=None, terminator_char=No
         inputs.append(_key_input(terminator_vk, 0, KEYEVENTF_KEYUP))
     elif terminator_char is not None:
         inputs.extend(_unicode_pair(terminator_char))
-    _send(inputs)
+    return _send(inputs)
 
 
 def switch_layout(layout):

@@ -25,6 +25,7 @@ class Recorder:
 def make_engine(rec_replace, rec_layout):
     engine.replace_last_word = rec_replace
     engine.switch_layout = rec_layout
+    engine.release_modifiers = lambda: None   # в юнит-тесте клавиши не шлём
     log = Recorder()
     e = SwitchEngine({}, lambda m: log(m))
     e.layout = "en"
